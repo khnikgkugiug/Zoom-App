@@ -809,73 +809,39 @@ async function saveSupervisorData(){
 }
 
 async function sendToSheet(rowIndex, managerData, supervisorData) {
-    let lastError = null;
+    try {
+        const customer = customers.find(c => c.rowIndex === rowIndex);
+        const customerName = customer ? customer.name : '';
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-            const customer = customers.find(c => c.rowIndex === rowIndex);
-            const customerName = customer ? customer.name : '';
+        const payload = {
+            customerName: customerName,
+            rowIndex: rowIndex,
+            managerData: managerData || {},
+            supervisorData: supervisorData || {},
+            action: 'saveData',
+            timestamp: new Date().toISOString()
+        };
 
-            const payload = {
-                customerName: customerName,
-                rowIndex: rowIndex,
-                managerData: managerData || {},
-                supervisorData: supervisorData || {},
-                action: 'saveData',
-                timestamp: new Date().toISOString()
-            };
+        console.log('Sending to sheet:', payload);
 
-            console.log(`Attempt ${attempt}: Sending to sheet:`, payload);
+        // ✅ استخدم mode: 'no-cors' عشان GAS بيعمل redirect
+        await fetch(CONFIG.GAS_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: {
+                'Content-Type': 'text/plain;charset=utf-8',
+            },
+            body: JSON.stringify(payload)
+        });
 
-            // ✅ FIX: Use text/plain to bypass CORS preflight check
-            // GAS doesn't support OPTIONS requests, so application/json triggers 405 error
-            // text/plain makes it a "simple request" that skips preflight
-            const response = await fetch(CONFIG.GAS_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'text/plain;charset=utf-8',
-                },
-                body: JSON.stringify(payload)
-            });
+        // ✅ لأن no-cors بيمنع قراءة الـ response، نفترض النجاح
+        console.log('✅ Request sent (no-cors mode)');
+        return { success: true };
 
-            console.log(`Attempt ${attempt}: Response status:`, response.status);
-
-            // Try to parse response
-            let responseData;
-            try {
-                const text = await response.text();
-                console.log(`Attempt ${attempt}: Response text:`, text.substring(0, 200));
-                if (text) {
-                    responseData = JSON.parse(text);
-                }
-            } catch (parseError) {
-                console.log('Could not parse response, but request may have succeeded');
-            }
-
-            if (responseData && responseData.success) {
-                console.log('✅ Data saved successfully');
-                return { success: true, data: responseData };
-            }
-
-            // If we got here without error, assume success (GAS redirects sometimes)
-            if (response.status === 200 || response.status === 0) {
-                return { success: true };
-            }
-
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-
-        } catch (error) {
-            console.error(`Attempt ${attempt} failed:`, error);
-            lastError = error;
-
-            if (attempt < 3) {
-                console.log(`Waiting 2 seconds before retry...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
+    } catch (error) {
+        console.error('Error:', error);
+        return { success: false, error: error.message };
     }
-
-    return { success: false, error: lastError ? lastError.message : 'Unknown error' };
 }
 
 async function saveAllToSheet(){
